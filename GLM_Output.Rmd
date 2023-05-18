@@ -1,0 +1,216 @@
+---
+title: "GLM_Output_Tables"
+author: "Chloe Fouilloux"
+date: '2023-05-17'
+output: html_document
+---
+Alright friends. So, I have been getting some requests on modelling. . . and I am going to **POLITELY** skirt these by giving you an alternative, which consists of two parts:
+
+(1) How to interpret the model output of the GLM you just ran.
+(2) How to check if your data is CORRECT for the model you just ran (spoiler, unfortunately it's probably not)
+
+One of the reasons I am shying away from doing a proper modelling video is because modelling requires thoughtful statistical thinking. everyone, say it with me: **JUST BECAUSE IT RUNS, DOESN'T MEAN IT'S RIGHT.** 
+
+So, I want to give you some quick tips to understanding what models are saying and how to be critical of the slap-it-on approach some of us have been taught.
+
+```{r Packages}
+#Load packages.
+library(tidyverse)
+library(ggplot2)
+library(ggdist) #for stat halfeye
+library(DHARMa) #THE STAR OF THE SHOW INTERPRETATION OF MODEL FIT
+
+```
+
+
+```{r Theme Set}
+theme_set(  theme(legend.position = "none",
+                  strip.background = element_rect(fill = "white"),
+                  panel.background = element_rect(fill = "white",
+                                                  colour = "black"), 
+                  panel.grid.major = element_blank(), 
+                  panel.grid.minor = element_blank(), 
+                  text = element_text(size = 14)))
+```
+
+
+```{r}
+#Let start with some data from globally accessible data base
+data(iris)
+#Let's do some shitty GLMs!
+
+mod1<- glm(Sepal.Length  ~ Species, data = iris)
+#why can't I add petal.length or petal width?
+#well, let's think of auto-correltion!
+#mod1a<- glm(Sepal.Length  ~ Species * Petal.Length, data = iris) #talk about interactions? (maybe not for this one)
+
+summary(mod1)
+
+```
+
+
+Interpreting model output
+(1) Where did setosa go? It is our intercept! When we have a model, it needs a value to compare everything else to. THIS CAN BE CHANGED. Let's do that just for funsies.
+
+```{r}
+levels(iris$Species)
+iris$sp <- relevel(iris$Species, "versicolor")
+levels(iris$sp)
+
+mod1a<- glm(Sepal.Length  ~ sp, data = iris)
+summary(mod1a) #notice how setosa is negative now!
+```
+
+(2) So, the estimate is our slope.
+(3) Std. error, is how much variation we see in these slopes. How fuzzy are things? Compare to your estimate. How big is it?
+(4) Well well well, this is just your estimate divided by a standard error. What does the number mean? well let's take an example:
+
+-0.93/0.103 = 9.033
+-0.93/0.03 = 31 (see, when we have smaller standard error, our value is higher so would be more confident about it!)
+
+(5) Null deviance-- df are based on your data, look at how many observations you have in your data frame if we set the model to just looking at the intercept. Also called a null model
+
+Like this!
+```{r}
+mod1b<- glm(Sepal.Length  ~ 1, data = iris)
+summary(mod1b) #look at the null and residual deviance. output. 
+
+
+ggplot(iris, aes(x = Species, y = Sepal.Length))+
+  ggdist::stat_halfeye(point_interval = mean_qi)
+  geom_segment( aes(x= Species, 
+                   xend = as.numeric(Species)+1, 
+      y = mean(Sepal.Length), 
+      yend = mean(Sepal.Length), 
+               colour = Species),
+               size = 0.6, 
+               linetype = "dashed") 
+geom_hline(yintercept = 5.84333)
+
+```
+
+(6) Residual deviance, now how does compare when we take into account all predictor variables? Well, 3 species 150-3 = 147. How different are these values? The lower the value, the better. See when we add more infomation, the number of our residual deviance has gotten better! We can better understand the distribution of speal lengths when we take species into account ;-) Difference between these two values is a Chi-Square model! (NO, I AM NOT DOING THIS.)
+
+GOOD RESOURCE
+https://www.statology.org/interpret-glm-output-in-r/
+
+(7) Deviance residuals (first line). I actually didn't know this, so here's a quick exerpt from a cool person: In general, the reason we might be interested in this summary is to see how well our model is fitting the data. Residuals are the difference between what we observe and what our model predicts. 
+
++ It would be nice if our residuals were evenly distributed. 
+We would like the **1Q/3Q** values and Min/Max values to be about the **same in absolute value**, and for the **Median to be close to 0**. 
+
++ In addition we would like to see the **Min/Max** values **less than about 3 in absolute value.** This is because Deviance Residuals can be roughly approximated with a standard Normal distribution when the model holds (Agresti, 2002). 
+
+#Read more here. 
+https://data.library.virginia.edu/understanding-deviance-residuals/
+
+CHECK YOUR SHIT!!!!
+
+WELCOME TO THE BEST PACKAGE IN THE WORLD, DHARMA.
+
+```{r Iris mod}
+library(DHARMa)
+
+#Let's check the model fit and residuals using DHARMa
+summary(mod1)
+
+#run both lines at the same time
+simulationOutput<- simulateResiduals(fittedModel = mod1) #no problems detected
+plot(simulationOutput)
+#
+
+testDispersion(mod2a) #fine
+testZeroInflation(mod2a) #good
+testOutliers(mod2a) #FAILED
+testUniformity(simulationOutput)
+
+
+```
+
+IRIS DATA SET
+
+**Failed Levene test:**
+Many statistical testing procedures require that there is **equal variance in the samples**. How can it now be checked whether the variances are homogeneous, i.e. whether there is equality of variance? This is where the Levene test helps. The Levene test checks whether several groups have the same variance in the population.
+
+# mod1: https://datatab.net/tutorial/levene-test
+
+That means on average, the values it can take, are spread out equally from their respective means.
+
+#How to fix?# Probably could be taken care of with an random factor.
+
+
+```{r Iris Data}
+#Let's check the variances for **Levene Test Check**
+
+stats <- iris %>% 
+        group_by(Species) %>% 
+        summarise(mean = mean(Sepal.Length))
+
+ggplot(iris, aes(x = Species, y = Sepal.Length))+
+  ggdist::stat_halfeye(point_interval = mean_qi)+
+  geom_segment(data = stats, 
+               aes(x= as.numeric(Species)+0.05, 
+                   xend = as.numeric(Species)+c(0.85,0.5,0.5), 
+               y = mean, yend = mean, 
+               group = Species),
+               colour = "red",
+               size = 0.6, 
+               linetype = "dashed")+
+  ylab("Sepal Length (cm)")+
+  coord_flip()
+
+?ggdist::stat_halfeye
+
+#read this for more: https://cran.r-project.org/web/packages/ggdist/vignettes/slabinterval.html
+
+```
+
+
+DIAMOND DATA SET
+
+```{r Diamond Mod}
+data(diamonds)
+mod2<- glm(price ~ carat, data = diamonds)
+mod2a<- glm(price ~ carat + color + table, data = diamonds)
+
+#mod2 => intercept is carat = 0
+#mod2a => intercept is carat = 0, cut = 
+
+#Let's check the model fit and residuals using DHARMa
+summary(mod2)
+summary(mod2a)
+summary(mod2b)
+
+#run both lines at the same time
+simulationOutput<- simulateResiduals(fittedModel = mod2)
+plot(simulationOutput)
+#
+
+testDispersion(mod2a)
+testZeroInflation(mod2a) 
+testOutliers(mod2a) #FAILED
+testUniformity(simulationOutput)
+
+
+```
+
+DIAMOND DATA SET
+
+**KS test failed**, One-sample Kolmogorov-Smirnov test
+#means your data isn't normally distributed, which means you need to take care of the family you're defining in your model
+
+**Outlier Test**
+
+**Patterns in Residuals**, ideally there should be none!
+#Read more here: https://towardsdatascience.com/diagnose-the-generalized-linear-models-66ad01128261#:~:text=In%20the%20Gaussian%20linear%20model,fitted%20model)%20and%20the%20data.&text=In%20the%20GLM%2C%20it%20is,from%20other%20types%20of%20residuals 
+
+#Read more here as well: https://statsnotebook.io/blog/analysis/linearity_homoscedasticity/ 
+
+Non-random patterns in your residuals signify that your variables are missing something.
+
+Importantly, appreciate that if you do see unwanted patterns in your residual plots, it actually represents a chance to improve your model because there is something more that your independent variables can explain.
+
+
+Again, I am not gonna go about how to "fix" these models, because that depends on your models! But the first step is how to diagnose the problem. I will attach a bunch of resources for those interested. ;-) 
+
+
